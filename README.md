@@ -39,7 +39,7 @@ JUnit plugin understands, _nothing more_.
 So yeah, I parse XML with regex. Fight me.
 
 [jenkins]: https://plugins.jenkins.io/junit
-[xcpretty]: https://github.com/xcpretty/xcpretty/issues?utf8=%E2%9C%93&q=is%3Aissue+is%3Aopen+tests
-[trainer]: https://github.com/xcpretty/trainer/issues
+[xcp]: https://github.com/xcpretty/xcpretty/issues?utf8=%E2%9C%93&q=is%3Aissue+is%3Aopen+tests
+[train]: https://github.com/xcpretty/trainer/issues
 [fast]: https://github.com/fastlane/fastlane
 
