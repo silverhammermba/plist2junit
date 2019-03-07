@@ -8,7 +8,7 @@ end
 
 plist = nil
 
-IO.popen("plutil -convert json -o - #{ARGV[0]}") do |plutil|
+IO.popen(%w{plutil -convert json -o -} << ARGV[0]) do |plutil|
   plist = JSON.load plutil
 end
 
