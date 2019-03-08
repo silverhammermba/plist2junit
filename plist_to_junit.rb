@@ -6,63 +6,83 @@ if ARGV.length != 1
   exit 1
 end
 
-plist = nil
+# convert plist to a dictionary
 
+plist = nil
 IO.popen(%w{plutil -convert json -o -} << ARGV[0]) do |plutil|
   plist = JSON.load plutil
 end
 
-# transform data
-tests = {suites: []}
+# transform to a dictionary that mimics the output structure
 
-plist['TestableSummaries'].each do |testsuite|
-  suitetests = testsuite["Tests"]
+test_suites = []
 
-  # TODO this is for a suite error, but what if a single test case has an error?
-  if suitetests.empty? && testsuite['FailureSummaries']
-    tests[:suites] << {name: testsuite['TestName'], error: testsuite['FailureSummaries'][0]['Message']}
-  else
-    test_classes = suitetests[0]["Subtests"][0]["Subtests"]
-    test_classes.each do |test_class|
-      klass = "#{testsuite['TestName']}.#{test_class['TestName']}"
-      suite = {name: klass, cases: []}
+plist['TestableSummaries'].each do |target|
+  test_classes = target["Tests"]
 
-      test_class["Subtests"].each do |testcase|
-        result = {name: testcase['TestName'], time: testcase['Duration']}
+  # if the test target failed to launch at all
+  if test_classes.empty? && target['FailureSummaries']
+    test_suites << {name: target['TestName'], error: target['FailureSummaries'][0]['Message']}
+    next
+  end
 
-        if testcase['FailureSummaries']
-          failure = testcase['FailureSummaries'][0]
-          result[:failure] = failure['Message']
-          result[:failure_location] = "#{failure['FileName']}:#{failure['LineNumber']}"
+  # else process the test classes in each target
+  # first two levels are just summaries, so skip those
+  test_classes[0]["Subtests"][0]["Subtests"].each do |test_class|
+    suite = {name: "#{target['TestName']}.#{test_class['TestName']}", cases: []}
+
+    # process the tests in each test class
+    test_class["Subtests"].each do |test|
+      testcase = {name: test['TestName'], time: test['Duration']}
+
+      if test['FailureSummaries']
+        failure = test['FailureSummaries'][0]
+
+        filename = failure['FileName']
+
+        if filename == '<unknown>'
+          testcase[:error] = failure['Message']
+        else
+          testcase[:failure] = failure['Message']
+          testcase[:failure_location] = "#{filename}:#{failure['LineNumber']}"
         end
-
-        suite[:cases] << result
       end
 
-      suite[:count] = suite[:cases].size
-      suite[:failures] = suite[:cases].count { |testcase| testcase[:failure] }
-      tests[:suites] << suite
+      suite[:cases] << testcase
     end
+
+    suite[:count] = suite[:cases].size
+    suite[:failures] = suite[:cases].count { |testcase| testcase[:failure] }
+    suite[:errors] = suite[:cases].count { |testcase| testcase[:error] }
+    test_suites << suite
   end
 end
 
-# print data
+# format the data
+
+def attr str
+  str.gsub ?', '&apos;'
+end
 
 puts '<?xml version="1.0" encoding="UTF-8"?>'
 puts "<testsuites>"
-tests[:suites].each do |suite|
+test_suites.each do |suite|
   if suite[:error]
-    puts "<testsuite name='#{suite[:name]}' errors='1'>"
+    puts "<testsuite name='#{attr suite[:name]}' errors='1'>"
     puts "<error>#{suite[:error]}</error>"
     puts '</testsuite>'
   else
-    puts "<testsuite name='#{suite[:name]}' tests='#{suite[:count]}' failures='#{suite[:failures]}'>"
+    puts "<testsuite name='#{attr suite[:name]}' tests='#{suite[:count]}' failures='#{suite[:failures]}' errors='#{suite[:errors]}'>"
 
     suite[:cases].each do |testcase|
-      print "<testcase classname='#{suite[:name]}' name='#{testcase[:name]}' time='#{testcase[:time]}'"
+      print "<testcase classname='#{attr suite[:name]}' name='#{attr testcase[:name]}' time='#{testcase[:time]}'"
       if testcase[:failure]
         puts '>'
-        puts "<failure message='#{testcase[:failure]}'>#{testcase[:failure_location]}</failure>"
+        puts "<failure message='#{attr testcase[:failure]}'>#{testcase[:failure_location]}</failure>"
+        puts '</testcase>'
+      elsif testcase[:error]
+        puts '>'
+        puts "<error>#{testcase[:error]}</error>"
         puts '</testcase>'
       else
         puts '/>'
