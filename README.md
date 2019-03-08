@@ -23,23 +23,13 @@ surprisingly bad at the one thing they are supposed to do: generate test reports
 
 ## What does this do better?
 
-* No external dependencies
+* Depends only on standard mac OS utilities (ruby, plutil, no gems)
 * Simple to run (one file in, prints to stdout)
-* Fast (0.25s for ~540 tests)
+* Fast (0.22s for ~540 tests)
 * Includes test errors in output
 * Nicely organizes separate testing targets
-
-## The code sucks
-
-This script doesn't need to parse general XML. It doesn't need to support every
-possible feature that JUnit XML readers support. I want to parse Xcode's
-TestSummaries.plist file, _nothing else_. I want an output that the Jenkins
-JUnit plugin understands, _nothing more_.
-
-So yeah, I parse XML with regex. Fight me.
 
 [jenkins]: https://plugins.jenkins.io/junit
 [xcp]: https://github.com/xcpretty/xcpretty/issues?utf8=%E2%9C%93&q=is%3Aissue+is%3Aopen+tests
 [train]: https://github.com/xcpretty/trainer/issues
 [fast]: https://github.com/fastlane/fastlane
-
