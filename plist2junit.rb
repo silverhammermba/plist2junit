@@ -60,29 +60,25 @@ end
 
 # format the data
 
-def attr str
-  str.gsub ?', '&apos;'
-end
-
 puts '<?xml version="1.0" encoding="UTF-8"?>'
 puts "<testsuites>"
 test_suites.each do |suite|
   if suite[:error]
-    puts "<testsuite name='#{attr suite[:name]}' errors='1'>"
-    puts "<error>#{suite[:error]}</error>"
+    puts "<testsuite name=#{suite[:name].encode xml: :attr} errors='1'>"
+    puts "<error>#{suite[:error].encode xml: :text}</error>"
     puts '</testsuite>'
   else
-    puts "<testsuite name='#{attr suite[:name]}' tests='#{suite[:count]}' failures='#{suite[:failures]}' errors='#{suite[:errors]}'>"
+    puts "<testsuite name=#{suite[:name].encode xml: :attr} tests='#{suite[:count]}' failures='#{suite[:failures]}' errors='#{suite[:errors]}'>"
 
     suite[:cases].each do |testcase|
-      print "<testcase classname='#{attr suite[:name]}' name='#{attr testcase[:name]}' time='#{testcase[:time]}'"
+      print "<testcase classname=#{suite[:name].encode xml: :attr} name=#{testcase[:name].encode xml: :attr} time='#{testcase[:time]}'"
       if testcase[:failure]
         puts '>'
-        puts "<failure message='#{attr testcase[:failure]}'>#{testcase[:failure_location]}</failure>"
+        puts "<failure message=#{testcase[:failure].encode xml: :attr}>#{testcase[:failure_location].encode xml: :text}</failure>"
         puts '</testcase>'
       elsif testcase[:error]
         puts '>'
-        puts "<error>#{testcase[:error]}</error>"
+        puts "<error>#{testcase[:error].encode xml: :text}</error>"
         puts '</testcase>'
       else
         puts '/>'
