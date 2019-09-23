@@ -1,5 +1,8 @@
-This script reads a TestSummaries.plist file (as produced by Xcode unit tests)
-and prints out XML suitable for parsing by Jenkins's [JUnit plugin][jenkins].
+This provides two scripts that read Xcode unit test output and print out XML
+suitable for parsing by Jenkins's [JUnit plugin][jenkins].
+
+* plist2junit, for reading TestSummaries.plist from Xcode <= 10
+* xcresult2junit, for reading .xcresult directories from Xcode 11
 
 ## Why do you need this?
 
@@ -23,9 +26,11 @@ surprisingly bad at the one thing they are supposed to do: generate test reports
 
 ## What does this do better?
 
-* Depends only on standard mac OS utilities (ruby, plutil, no gems)
+* Depends only on standard mac OS utilities (ruby, plutil, xcrun, no gems)
 * Simple to run (one file in, prints to stdout)
-* Fast (0.22s for ~540 tests)
+* Fast
+  * plist2junit: 0.22s for ~540 tests
+  * xcresult2junit: 1.5s for ~700 tests
 * Includes test errors in output
 * Nicely organizes separate testing targets
 
