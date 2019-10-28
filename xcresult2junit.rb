@@ -32,14 +32,15 @@ test_suites = []
 
 tests['summaries']['_values'][0]['testableSummaries']['_values'].each do |target|
   target_name = target['targetName']['_value']
-  test_classes = target['tests']['_values']
 
-  # if the test target failed to launch at all
-  # FIXME: where are failuresummaries kept now?
-  if test_classes.empty?
-    test_suites << {name: target_name, error: "No tests found in target"}
+  # if the test target failed to launch at all, get first failure message
+  unless target['tests']
+    failure_summary = target['failureSummaries']['_values'][0]
+    test_suites << {name: target_name, error: failure_summary['message']['_value']}
     next
   end
+
+  test_classes = target['tests']['_values']
 
   # else process the test classes in each target
   # first two levels are just summaries, so skip those
