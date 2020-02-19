@@ -48,29 +48,37 @@ tests['summaries']['_values'][0]['testableSummaries']['_values'].each do |target
     suite = {name: "#{target_name}.#{test_class['name']['_value']}", cases: []}
 
     # process the tests in each test class
-    test_class['subtests']['_values'].each do |test|
-      duration = 0
-      if test['duration']
-        duration = test['duration']['_value']
-      end
+    tests = test_class.dig('subtests', '_values')
 
-      testcase = {name: test['name']['_value'], time: duration}
-
-      if test['testStatus']['_value'] == 'Failure'
-        failure = get_object(test['summaryRef']['id']['_value'])['failureSummaries']['_values'][0]
-
-        filename = failure['fileName']['_value']
-        message = failure['message']['_value']
-
-        if filename == '<unknown>'
-          testcase[:error] = message
-        else
-          testcase[:failure] = message
-          testcase[:failure_location] = "#{filename}:#{failure['lineNumber']['_value']}"
+    if tests
+      tests.each do |test|
+        duration = 0
+        if test['duration']
+          duration = test['duration']['_value']
         end
-      end
 
-      suite[:cases] << testcase
+        testcase = {name: test['name']['_value'], time: duration}
+
+        if test['testStatus']['_value'] == 'Failure'
+          failures = get_object(test['summaryRef']['id']['_value'])['failureSummaries']['_values']
+
+          message = failures.map { |failure| failure['message']['_value'] }.join("\n")
+          location = failures.select { |failure| failure['fileName']['_value'] != '<unknown>' }.first
+
+          if location
+            testcase[:failure] = message
+            testcase[:failure_location] = "#{location['fileName']['_value']}:#{location['lineNumber']['_value']}"
+          else
+            testcase[:error] = message
+          end
+        end
+
+        suite[:cases] << testcase
+      end
+    else
+      # consider a test class without tests to be an error
+      # there's no good reason to have an empty test class, and it can occur as an error
+      suite[:cases] << {name: 'Missing tests', time: 0, error: 'No test results found'}
     end
 
     suite[:count] = suite[:cases].size
