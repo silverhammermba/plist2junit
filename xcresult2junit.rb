@@ -1,5 +1,75 @@
 #!/usr/bin/env ruby
 require 'json'
+require 'time'
+
+def get_object id=nil
+  args = %w{xcrun xcresulttool get --format json --path} << $xcresult
+  if id
+    args << '--id' << id
+  end
+  IO.popen(args) do |object|
+    return dict2obj(JSON.load object)
+  end
+end
+
+module XCResult
+  class Reference
+    def deref
+      get_object @id
+    end
+  end
+end
+
+# create a new class in the XCResult module using a dictionary
+def dynamicobj dict
+  klass = nil
+  typename = dict['_type']['_name']
+  begin
+    klass = XCResult.const_get(typename)
+  rescue NameError
+    warn "creating new type: #{typename}"
+    klass = Class.new
+    XCResult.const_set(typename, klass)
+
+    klass.define_method :method_missing do |*args|
+      nil
+    end
+  end
+
+  obj = klass.new
+
+  dict.each do |key, val|
+    next if key.start_with? ?_
+    obj.instance_variable_set "@#{key}", dict2obj(val)
+    unless obj.methods.include? key.to_sym
+      klass.define_method key do
+        instance_variable_get "@#{key}"
+      end
+    end
+  end
+
+  obj
+end
+
+def dict2obj dict
+  type = dict['_type']
+  case type['_name']
+  when 'Array'
+    dict['_values'].map { |d| dict2obj d }
+  when 'Bool'
+    dict['_value'] == 'true'
+  when 'Date'
+    Time.parse dict['_value']
+  when 'Double'
+    Float(dict['_value'])
+  when 'Int'
+    Integer(dict['_value'])
+  when 'String'
+    dict['_value']
+  else
+    dynamicobj dict
+  end
+end
 
 if ARGV.length != 1
   warn "usage: #$0 Foobar.xcresult"
@@ -8,65 +78,50 @@ end
 
 $xcresult = ARGV[0]
 
-def get_object id
-  result = nil
-  IO.popen(%w{xcrun xcresulttool get --format json --path} << $xcresult << '--id' << id) do |object|
-    result = JSON.load object
-  end
-  result
-end
-
 # get test result id from xcresults
-results = nil
-IO.popen(%w{xcrun xcresulttool get --format json --path} << $xcresult) do |result_summary|
-  results = JSON.load result_summary
-end
+results = get_object
 
 # load test results by id
-testsRef = results['actions']['_values'][0]['actionResult']['testsRef']['id']['_value']
-tests = get_object testsRef
+tests = results.actions[0].actionResult.testsRef.deref
 
 # transform to a dictionary that mimics the output structure
 
 test_suites = []
 
-tests['summaries']['_values'][0]['testableSummaries']['_values'].each do |target|
-  target_name = target['targetName']['_value']
+tests.summaries[0].testableSummaries.each do |target|
+  target_name = target.targetName
 
   # if the test target failed to launch at all, get first failure message
-  unless target['tests']
-    failure_summary = target['failureSummaries']['_values'][0]
-    test_suites << {name: target_name, error: failure_summary['message']['_value']}
+  unless target.tests
+    failure_summary = target.failureSummaries[0]
+    test_suites << {name: target_name, error: failure_summary.message}
     next
   end
 
-  test_classes = target['tests']['_values']
+  test_classes = target.tests
 
   # else process the test classes in each target
   # first two levels are just summaries, so skip those
-  test_classes[0]['subtests']['_values'][0]['subtests']['_values'].each do |test_class|
-    suite = {name: "#{target_name}.#{test_class['name']['_value']}", cases: []}
+  test_classes[0].subtests[0].subtests.each do |test_class|
+    suite = {name: "#{target_name}.#{test_class.name}", cases: []}
 
     # process the tests in each test class
-    test_class['subtests']['_values'].each do |test|
-      duration = 0
-      if test['duration']
-        duration = test['duration']['_value']
-      end
+    test_class.subtests.each do |test|
+      duration = test.duration || 0
 
-      testcase = {name: test['name']['_value'], time: duration}
+      testcase = {name: test.name, time: duration}
 
-      if test['testStatus']['_value'] == 'Failure'
-        failure = get_object(test['summaryRef']['id']['_value'])['failureSummaries']['_values'][0]
+      if test.testStatus == 'Failure'
+        failures = test.summaryRef.deref.failureSummaries
 
-        filename = failure['fileName']['_value']
-        message = failure['message']['_value']
+        message = failures.map { |failure| failure.message }.join("\n")
+        location = failures.select { |failure| failure.fileName != '<unknown>' }.first
 
-        if filename == '<unknown>'
-          testcase[:error] = message
-        else
+        if location
           testcase[:failure] = message
-          testcase[:failure_location] = "#{filename}:#{failure['lineNumber']['_value']}"
+          testcase[:failure_location] = "#{location.fileName}:#{location.lineNumber}"
+        else
+          testcase[:error] = message
         end
       end
 
