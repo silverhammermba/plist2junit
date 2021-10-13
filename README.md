@@ -3,6 +3,8 @@ suitable for parsing by Jenkins's [JUnit plugin][jenkins].
 
 * plist2junit, for reading TestSummaries.plist from Xcode <= 10
 * xcresult2junit, for reading .xcresult directories from Xcode 11
+* extract\_xccovarchive, for working around [this bug][sonar] if you use
+  SonarQube for code coverage
 
 ## Why do you need this?
 
@@ -38,3 +40,4 @@ surprisingly bad at the one thing they are supposed to do: generate test reports
 [xcp]: https://github.com/xcpretty/xcpretty/issues?utf8=%E2%9C%93&q=is%3Aissue+is%3Aopen+tests
 [train]: https://github.com/xcpretty/trainer/issues
 [fast]: https://github.com/fastlane/fastlane
+[sonar]: https://github.com/SonarSource/sonar-scanning-examples/issues/68
