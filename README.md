@@ -2,7 +2,7 @@ This provides two scripts that read Xcode unit test output and print out XML
 suitable for parsing by Jenkins's [JUnit plugin][jenkins].
 
 * plist2junit, for reading TestSummaries.plist from Xcode <= 10
-* xcresult2junit, for reading .xcresult directories from Xcode 11
+* xcresult2junit, for reading .xcresult directories from Xcode 11+
 * extract\_xccovarchive, for working around [this bug][sonar] if you use
   SonarQube for code coverage
 
