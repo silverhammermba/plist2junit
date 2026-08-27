@@ -54,7 +54,9 @@ results['testNodes'].each do |test_plan|
 
         testcase = {name: test['name'], time: duration}
 
-        if test['result'] == 'Failed'
+        if test['result'] == 'Skipped'
+          testcase[:skipped] = (test['children'] || []).map { |child| child['name'] }.join("\n")
+        elsif test['result'] == 'Failed'
           failure_messages = test['children']
 
           message = nil
@@ -93,6 +95,7 @@ results['testNodes'].each do |test_plan|
       suite[:count] = suite[:cases].size
       suite[:failures] = suite[:cases].count { |testcase| testcase[:failure] }
       suite[:errors] = suite[:cases].count { |testcase| testcase[:error] }
+      suite[:skipped] = suite[:cases].count { |testcase| testcase[:skipped] }
       all_test_suites << suite
     end
   end
@@ -102,8 +105,7 @@ end
 
 empty_test_suite_info = {
   # Empty test suites for which at least one test completed in another test result entry.
-  # This seems to happen sometimes when a test crashes and unrelated test suites show additional empty results
-  # alongside their normal test results.
+  # This seems to happen sometimes when a test crashes and unrelated test suites show additional empty results alongside their normal test results.
   repeated: {label: 'with some', count: 0, messages: []},
   # Empty test suites for which no tests completed at all.
   only_empty: {label: 'without any', count: 0, messages: []}
@@ -142,7 +144,7 @@ all_test_suites.each do |suite|
     puts "<error>#{suite[:error].encode xml: :text}</error>"
     puts '</testsuite>'
   else
-    puts "<testsuite name=#{suite[:name].encode xml: :attr} tests='#{suite[:count]}' failures='#{suite[:failures]}' errors='#{suite[:errors]}'>"
+    puts "<testsuite name=#{suite[:name].encode xml: :attr} tests='#{suite[:count]}' failures='#{suite[:failures]}' errors='#{suite[:errors]}' skipped='#{suite[:skipped]}'>"
 
     suite[:cases].each do |testcase|
       print "<testcase classname=#{suite[:name].encode xml: :attr} name=#{testcase[:name].encode xml: :attr} time=\"#{testcase[:time]}\""
@@ -153,6 +155,10 @@ all_test_suites.each do |suite|
       elsif testcase[:error]
         puts '>'
         puts "<error>#{testcase[:error].encode xml: :text}</error>"
+        puts '</testcase>'
+      elsif testcase[:skipped]
+        puts '>'
+        puts "<skipped message=#{testcase[:skipped].encode xml: :attr}/>"
         puts '</testcase>'
       else
         puts '/>'
