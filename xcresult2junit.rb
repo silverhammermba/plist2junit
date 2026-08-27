@@ -6,68 +6,82 @@ if ARGV.length != 1
   exit 1
 end
 
-$xcresult = ARGV[0]
+xcresult = ARGV[0]
 
-def get_object id
-  result = nil
-  IO.popen(%w{xcrun xcresulttool get --format json --path} << $xcresult << '--id' << id) do |object|
-    result = JSON.load object
-  end
-  result
-end
-
-# get test result id from xcresults
+# get test results from xcresults
 results = nil
-IO.popen(%w{xcrun xcresulttool get --format json --path} << $xcresult) do |result_summary|
+IO.popen(%w{xcrun xcresulttool get test-results tests --path} << xcresult) do |result_summary|
   results = JSON.load result_summary
 end
 
-# load test results by id
-testsRef = results['actions']['_values'][0]['actionResult']['testsRef']['id']['_value']
-tests = get_object testsRef
+# transform test suites to dictionaries that mimic the output structure
 
-# transform to a dictionary that mimics the output structure
+all_test_suites = []
+empty_test_suite_counts = Hash.new(0) # default value 0 to allow incrementing before a value is initialized
 
-test_suites = []
+results['testNodes'].each do |test_plan|
+  test_plan['children'].each do |test_bundle|
+    bundle_name = test_bundle['name']
 
-tests['summaries']['_values'][0]['testableSummaries']['_values'].each do |target|
-  target_name = target['targetName']['_value']
+    test_suites = test_bundle['children']
 
-  # if the test target failed to launch at all, get first failure message
-  unless target['tests']
-    failure_summary = target['failureSummaries']['_values'][0]
-    test_suites << {name: target_name, error: failure_summary['message']['_value']}
-    next
-  end
+    # consider a bundle without test suites to be an error
+    unless test_suites && test_suites.length > 0
+      test_suites << {name: bundle_name, error: 'no test results found'}
+      next
+    end
 
-  test_classes = target['tests']['_values']
+    # else process the test suites in each test bundle
+    test_bundle['children'].each do |test_suite|
+      suite = {name: "#{bundle_name}.#{test_suite['name']}", cases: []}
 
-  # else process the test classes in each target
-  # first two levels are just summaries, so skip those
-  test_classes[0]['subtests']['_values'][0]['subtests']['_values'].each do |test_class|
-    suite = {name: "#{target_name}.#{test_class['name']['_value']}", cases: []}
+      # process the tests in each test suite
+      test_cases = test_suite['children']
 
-    # process the tests in each test class
-    tests = test_class.dig('subtests', '_values')
+      unless test_cases && test_cases.length > 0
+        # consider a test suite without tests to be an error
+        # there's no good reason to have an empty test suite, and it can occur as an error
+        empty_test_suite_counts[suite[:name]] += 1
+        next
+      end
 
-    if tests
-      tests.each do |test|
+      test_cases.each do |test|
         duration = 0
         if test['duration']
-          duration = test['duration']['_value']
+          # strip trailing 's'
+          duration = test['duration'][0...-1]
         end
 
-        testcase = {name: test['name']['_value'], time: duration}
+        testcase = {name: test['name'], time: duration}
 
-        if test['testStatus']['_value'] == 'Failure'
-          failures = get_object(test['summaryRef']['id']['_value'])['failureSummaries']['_values']
+        if test['result'] == 'Failed'
+          failure_messages = test['children']
 
-          message = failures.map { |failure| failure['message']['_value'] }.join("\n")
-          location = failures.select { |failure| failure['fileName']['_value'] != '<unknown>' }.first
+          message = nil
+          location = nil
+
+          failure_messages.each do |failure_message|
+            text = failure_message['name']
+            if text =~ /^([^:]+):((\d+):)? (.*)/
+              file_name = $1
+              line_number = $3
+              text = $4
+
+              unless location
+                location = "#{file_name}:#{line_number}"
+              end
+            end
+
+            if message
+              message += "\n#{text}"
+            else
+              message = text
+            end
+          end
 
           if location
             testcase[:failure] = message
-            testcase[:failure_location] = "#{location['fileName']['_value']}:#{location['lineNumber']['_value']}"
+            testcase[:failure_location] = location
           else
             testcase[:error] = message
           end
@@ -75,16 +89,46 @@ tests['summaries']['_values'][0]['testableSummaries']['_values'].each do |target
 
         suite[:cases] << testcase
       end
-    else
-      # consider a test class without tests to be an error
-      # there's no good reason to have an empty test class, and it can occur as an error
-      suite[:cases] << {name: 'Missing tests', time: 0, error: 'No test results found'}
-    end
 
-    suite[:count] = suite[:cases].size
-    suite[:failures] = suite[:cases].count { |testcase| testcase[:failure] }
-    suite[:errors] = suite[:cases].count { |testcase| testcase[:error] }
-    test_suites << suite
+      suite[:count] = suite[:cases].size
+      suite[:failures] = suite[:cases].count { |testcase| testcase[:failure] }
+      suite[:errors] = suite[:cases].count { |testcase| testcase[:error] }
+      all_test_suites << suite
+    end
+  end
+end
+
+# collect empty test suite instances into combined error messages
+
+empty_test_suite_info = {
+  # Empty test suites for which at least one test completed in another test result entry.
+  # This seems to happen sometimes when a test crashes and unrelated test suites show additional empty results
+  # alongside their normal test results.
+  repeated: {label: 'with some', count: 0, messages: []},
+  # Empty test suites for which no tests completed at all.
+  only_empty: {label: 'without any', count: 0, messages: []}
+}
+
+empty_test_suite_counts.each do |name, count|
+  if count > 0
+    # Get the sum of all completed tests with the same test suites name
+    completed_count = all_test_suites.sum { |suite| (suite[:name] == name) ? suite[:count] : 0 }
+    message = "#{name}: #{count} empty test suite results, #{completed_count} completed test results"
+    if completed_count > 0
+      empty_test_suite_info[:repeated][:messages] << message
+      empty_test_suite_info[:repeated][:count] += count
+    else
+      empty_test_suite_info[:only_empty][:messages] << message
+      empty_test_suite_info[:only_empty][:count] += count
+    end
+  end
+end
+empty_test_suite_info.values.each do |info|
+  unless info[:messages].empty?
+    all_test_suites << {
+      name: "#{info[:count]} empty test suite results #{info[:label]} associated completed tests",
+      error: "XCode test result output includes some empty test suites (may indicate an error occurred while running tests):\n#{info[:messages].join("\n")}"
+    }
   end
 end
 
@@ -92,7 +136,7 @@ end
 
 puts '<?xml version="1.0" encoding="UTF-8"?>'
 puts "<testsuites>"
-test_suites.each do |suite|
+all_test_suites.each do |suite|
   if suite[:error]
     puts "<testsuite name=#{suite[:name].encode xml: :attr} errors='1'>"
     puts "<error>#{suite[:error].encode xml: :text}</error>"
@@ -101,7 +145,7 @@ test_suites.each do |suite|
     puts "<testsuite name=#{suite[:name].encode xml: :attr} tests='#{suite[:count]}' failures='#{suite[:failures]}' errors='#{suite[:errors]}'>"
 
     suite[:cases].each do |testcase|
-      print "<testcase classname=#{suite[:name].encode xml: :attr} name=#{testcase[:name].encode xml: :attr} time='#{testcase[:time]}'"
+      print "<testcase classname=#{suite[:name].encode xml: :attr} name=#{testcase[:name].encode xml: :attr} time=\"#{testcase[:time]}\""
       if testcase[:failure]
         puts '>'
         puts "<failure message=#{testcase[:failure].encode xml: :attr}>#{testcase[:failure_location].encode xml: :text}</failure>"
