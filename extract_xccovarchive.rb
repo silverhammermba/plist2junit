@@ -1,8 +1,7 @@
 #!/usr/bin/env ruby
+require 'fileutils'
 require 'json'
-require 'shellwords'
-
-# extract xccovarchive from xcresult so that xccov-to-sonarqube-generic.sh doesn't take a million years to process it
+require 'tmpdir'
 
 if ARGV.length != 2
   warn "usage: #$0 INPUT.xcresult OUTPUT.xccovarchive"
@@ -12,14 +11,14 @@ end
 xcresult = ARGV[0]
 xccovarchive = ARGV[1]
 
-# get test results from xcresults
-results = nil
-IO.popen(%w{xcrun xcresulttool get --format json --path} << xcresult) do |result_summary|
-  results = JSON.load result_summary
+Dir.mktmpdir do |tmp_dir|
+  # export coverage archive and report
+  cmd = %w{xcrun xcresulttool export coverage --type directory --path} << xcresult << '--output-path' << tmp_dir
+  system *cmd, out: File::NULL
+  # find archive
+  archives = Dir.glob(File.join(tmp_dir, '*_CoverageArchive'))
+  raise "no coverage archive in export" if archives.empty?
+  raise "multiple coverage archives in export" if archives.length > 1
+  # move to desired output path
+  FileUtils.mv(archives[0], xccovarchive)
 end
-
-# get coverage archive id
-archive_id = results['actions']['_values'][0]['actionResult']['coverage']['archiveRef']['id']['_value']
-
-# export the xccovarchive directory
-exec "xcrun xcresulttool export --type directory --path #{xcresult.shellescape} --id #{archive_id.shellescape} --output-path #{xccovarchive.shellescape}"
